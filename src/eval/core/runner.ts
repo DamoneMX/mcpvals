@@ -22,6 +22,8 @@ import { TraceStore } from "./trace.js";
 import { PerformanceMonitor } from "../infrastructure/performance.js";
 import { ResilienceManager } from "../infrastructure/resilience.js";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { generateText, tool } from "ai";
 import { z } from "zod";
 import { MCPTransports, ServerRunnerOptions } from "../../types/server.js";
@@ -40,6 +42,7 @@ export class ServerRunner {
   private currentTransport?: MCPTransports;
   private reconnectAttempts?: number;
   private currentErrorHandler?: (error: Error) => void;
+  private bedrockClient?: ReturnType<typeof createAmazonBedrock>;
 
   constructor(
     serverConfig: ServerConfig,
@@ -401,6 +404,34 @@ export class ServerRunner {
   }
 
   /**
+   * Initialize Bedrock client with SSO credentials
+   */
+  public initializeBedrockClient(): ReturnType<typeof createAmazonBedrock> {
+    if (this.bedrockClient) {
+      return this.bedrockClient;
+    }
+
+    try {
+      // Create Bedrock client with SSO credentials using the default credential provider chain
+      // The fromNodeProviderChain() will automatically use SSO credentials from the environment
+      this.bedrockClient = createAmazonBedrock({
+        region: "us-west-2",
+        credentialProvider: fromNodeProviderChain(),
+      });
+
+      if (this.options.debug) {
+        console.log("Bedrock client initialized with SSO credentials");
+      }
+
+      return this.bedrockClient;
+    } catch (error) {
+      throw new Error(
+        `Failed to initialize Bedrock client: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
    * List available tools
    */
   async listTools() {
@@ -540,6 +571,7 @@ export class ServerRunner {
   /**
    * Run a workflow using AI SDK with proper MCP integration
    * This follows MCP patterns where the LLM controls tool calling
+   * Supports both Anthropic and AWS Bedrock clients
    */
   async runWorkflowWithLLM(
     steps: Array<{
@@ -577,26 +609,36 @@ Focus on completing the tasks accurately and efficiently.`;
       messages.push({ role: "user", content: step.user });
 
       try {
-        const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-        if (!anthropicApiKey) {
-          throw new Error(
-            "ANTHROPIC_API_KEY environment variable is required for workflow execution",
-          );
-        }
+        let model;
 
-        const anthropic = createAnthropic({
-          apiKey: anthropicApiKey,
-        });
+        if (process.env.BEDROCK_TEST) {
+          // Use AWS Bedrock client with SSO credentials
+          const bedrock = this.initializeBedrockClient();
+          model = bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0");
+        } else {
+          // Use Anthropic client
+          const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+          if (!anthropicApiKey) {
+            throw new Error(
+              "ANTHROPIC_API_KEY environment variable is required for workflow execution",
+            );
+          }
+
+          const anthropic = createAnthropic({
+            apiKey: anthropicApiKey,
+          });
+          model = anthropic("claude-3-5-sonnet-20241022");
+        }
 
         const result = await this.resilienceManager.executeWithResilience(
           async () => {
             return await generateText({
-              model: anthropic("claude-3-5-sonnet-20241022"),
+              model,
               system: systemPrompt,
               messages,
               tools: aiTools,
               maxSteps: 5,
-            });
+            } as Parameters<typeof generateText>[0]);
           },
           {
             retryHandler: "default",

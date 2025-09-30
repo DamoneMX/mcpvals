@@ -1,5 +1,6 @@
 // Export all top-level APIs
 export { evaluate } from "./eval/core/index.js";
+export { ServerRunner } from "./eval/core/runner.js";
 export type { EvaluateOptions } from "./types/evaluation.js";
 export type { EvaluationReport } from "./types/evaluation.js";
 export {
