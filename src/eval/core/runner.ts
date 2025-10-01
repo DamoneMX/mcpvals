@@ -614,7 +614,7 @@ Focus on completing the tasks accurately and efficiently.`;
         if (process.env.BEDROCK_TEST) {
           // Use AWS Bedrock client with SSO credentials
           const bedrock = this.initializeBedrockClient();
-          model = bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0");
+          model = bedrock("anthropic.claude-sonnet-4-20250514-v1:0");
         } else {
           // Use Anthropic client
           const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
