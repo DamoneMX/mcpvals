@@ -419,10 +419,6 @@ export class ServerRunner {
         credentialProvider: fromNodeProviderChain(),
       });
 
-      if (this.options.debug) {
-        console.log("Bedrock client initialized with SSO credentials");
-      }
-
       return this.bedrockClient;
     } catch (error) {
       throw new Error(
@@ -611,10 +607,13 @@ Focus on completing the tasks accurately and efficiently.`;
       try {
         let model;
 
-        if (process.env.BEDROCK_TEST) {
-          // Use AWS Bedrock client with SSO credentials
-          const bedrock = this.initializeBedrockClient();
-          model = bedrock("anthropic.claude-sonnet-4-20250514-v1:0");
+        if (process.env.BEDROCK_ENABLED) {
+          // Use Bedrock client with AI SDK
+          const bedrockClient = this.initializeBedrockClient();
+          model = bedrockClient("us.anthropic.claude-3-5-sonnet-20241022-v2:0");
+          console.log(
+            "Using Bedrock model: us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+          );
         } else {
           // Use Anthropic client
           const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
@@ -628,6 +627,7 @@ Focus on completing the tasks accurately and efficiently.`;
             apiKey: anthropicApiKey,
           });
           model = anthropic("claude-3-5-sonnet-20241022");
+          console.log("Using Anthropic model: claude-3-5-sonnet-20241022");
         }
 
         const result = await this.resilienceManager.executeWithResilience(
@@ -830,6 +830,74 @@ Focus on completing the tasks accurately and efficiently.`;
     // Reset SSE state
     this.sseConnectionState = "disconnected";
     this.currentTransport = undefined;
+
+    // Log trace store for debugging
+    if (this.options.debug) {
+      console.log("=== Trace Store Debug Information ===");
+      const traceData = this.traceStore.export();
+      console.log("Traces:", traceData.traces.length);
+      console.log("Tool Calls:", traceData.toolCalls.length);
+      console.log("Tool Results:", traceData.toolResults.length);
+      console.log("Conversation Messages:", traceData.conversation.length);
+
+      // Log detailed trace information
+      if (traceData.traces.length > 0) {
+        console.log("\n--- Trace Entries ---");
+        traceData.traces.forEach((trace, index) => {
+          console.log(
+            `${index + 1}. [${trace.direction}] ${trace.timestamp.toISOString()}`,
+          );
+          console.log(`   Message: ${JSON.stringify(trace.message, null, 2)}`);
+          if (trace.metadata) {
+            console.log(
+              `   Metadata: ${JSON.stringify(trace.metadata, null, 2)}`,
+            );
+          }
+        });
+      }
+
+      if (traceData.toolCalls.length > 0) {
+        console.log("\n--- Tool Calls ---");
+        traceData.toolCalls.forEach((call, index) => {
+          console.log(`${index + 1}. ${call.name} (${call.id})`);
+          console.log(`   Args: ${JSON.stringify(call.arguments, null, 2)}`);
+          console.log(`   Time: ${call.timestamp.toISOString()}`);
+        });
+      }
+
+      /*
+      if (traceData.toolResults.length > 0) {
+        console.log("\n--- Tool Results ---");
+        traceData.toolResults.forEach((result, index) => {
+          console.log(`${index + 1}. Result for ${result.toolCallId}`);
+          console.log(`   Success: ${!result.error}`);
+          if (result.error) {
+            console.log(`   Error: ${result.error}`);
+          } else {
+            console.log(`   Result: ${JSON.stringify(result.result, null, 2)}`);
+          }
+          console.log(`   Time: ${result.timestamp.toISOString()}`);
+        });
+      }
+        */
+
+      if (traceData.conversation.length > 0) {
+        console.log("\n--- Conversation History ---");
+        traceData.conversation.forEach((msg, index) => {
+          console.log(
+            `${index + 1}. [${msg.role}] ${msg.timestamp.toISOString()}`,
+          );
+          console.log(`   Content: ${msg.content}`);
+          if (msg.toolCalls && msg.toolCalls.length > 0) {
+            console.log(
+              `   Tool Calls: ${msg.toolCalls.map((tc) => tc.name).join(", ")}`,
+            );
+          }
+        });
+      }
+
+      console.log("=== End Trace Store Debug Information ===");
+    }
 
     // Clean up trace store
     this.traceStore.destroy();
