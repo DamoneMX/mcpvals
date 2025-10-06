@@ -9,6 +9,7 @@ import {
 import { ToolTester } from "../evaluators/tool-health.js";
 import { ToolHealthResult } from "../../types/tool.js";
 import { ConsoleReporter } from "../reporters/console.js";
+import { TraceStoreReporter } from "../reporters/traceStore.js";
 import { runLlmJudge } from "../evaluators/llm-judge.js";
 import { EvaluateOptions, EvaluationReport } from "../../types/evaluation.js";
 
@@ -110,6 +111,9 @@ export async function evaluate(
         if (options.debug) {
           console.log(`Workflow execution ${success ? "succeeded" : "failed"}`);
           console.log(`Tool calls made: ${toolCalls.length}`);
+
+          const reporter = new TraceStoreReporter();
+          reporter.report(traceStore);
         }
 
         // Evaluate the workflow

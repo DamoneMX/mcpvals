@@ -630,6 +630,14 @@ Focus on completing the tasks accurately and efficiently.`;
           console.log("Using Anthropic model: claude-3-5-sonnet-20241022");
         }
 
+        const stepToolCalls: Array<{
+          id: string;
+          name: string;
+          args: Record<string, unknown>;
+          result: unknown;
+          error?: string;
+        }> = [];
+
         const result = await this.resilienceManager.executeWithResilience(
           async () => {
             return await generateText({
@@ -638,6 +646,19 @@ Focus on completing the tasks accurately and efficiently.`;
               messages,
               tools: aiTools,
               maxSteps: 5,
+              onStepFinish({ toolCalls, finishReason }) {
+                if (finishReason === "tool-calls") {
+                  for (const toolCall of toolCalls) {
+                    stepToolCalls.push({
+                      id: toolCall.toolCallId,
+                      name: toolCall.toolName,
+                      args: toolCall.args,
+                      result: undefined,
+                      error: undefined,
+                    });
+                  }
+                }
+              },
             } as Parameters<typeof generateText>[0]);
           },
           {
@@ -648,31 +669,6 @@ Focus on completing the tasks accurately and efficiently.`;
 
         // Extract text and tool results from generateText result
         const finalText = result.text;
-        const stepToolCalls: Array<{
-          name: string;
-          args: Record<string, unknown>;
-          result: unknown;
-          error?: string;
-        }> = [];
-
-        // Process tool calls and results if any
-        if (result.toolCalls && result.toolResults) {
-          for (let i = 0; i < result.toolCalls.length; i++) {
-            const toolCall = result.toolCalls[i];
-            const toolResult = result.toolResults[i];
-
-            // NOTE: Tool calls are already recorded in TraceStore by the callTool method
-            // when the AI tools execute, so we don't need to record them again here
-
-            stepToolCalls.push({
-              name: toolCall.toolName,
-              args: toolCall.args,
-              result: toolResult,
-              error: undefined,
-            });
-          }
-        }
-
         messages.push({ role: "assistant", content: finalText });
 
         // Record the conversation messages in trace store for evaluation
@@ -830,74 +826,6 @@ Focus on completing the tasks accurately and efficiently.`;
     // Reset SSE state
     this.sseConnectionState = "disconnected";
     this.currentTransport = undefined;
-
-    // Log trace store for debugging
-    if (this.options.debug) {
-      console.log("=== Trace Store Debug Information ===");
-      const traceData = this.traceStore.export();
-      console.log("Traces:", traceData.traces.length);
-      console.log("Tool Calls:", traceData.toolCalls.length);
-      console.log("Tool Results:", traceData.toolResults.length);
-      console.log("Conversation Messages:", traceData.conversation.length);
-
-      // Log detailed trace information
-      if (traceData.traces.length > 0) {
-        console.log("\n--- Trace Entries ---");
-        traceData.traces.forEach((trace, index) => {
-          console.log(
-            `${index + 1}. [${trace.direction}] ${trace.timestamp.toISOString()}`,
-          );
-          console.log(`   Message: ${JSON.stringify(trace.message, null, 2)}`);
-          if (trace.metadata) {
-            console.log(
-              `   Metadata: ${JSON.stringify(trace.metadata, null, 2)}`,
-            );
-          }
-        });
-      }
-
-      if (traceData.toolCalls.length > 0) {
-        console.log("\n--- Tool Calls ---");
-        traceData.toolCalls.forEach((call, index) => {
-          console.log(`${index + 1}. ${call.name} (${call.id})`);
-          console.log(`   Args: ${JSON.stringify(call.arguments, null, 2)}`);
-          console.log(`   Time: ${call.timestamp.toISOString()}`);
-        });
-      }
-
-      /*
-      if (traceData.toolResults.length > 0) {
-        console.log("\n--- Tool Results ---");
-        traceData.toolResults.forEach((result, index) => {
-          console.log(`${index + 1}. Result for ${result.toolCallId}`);
-          console.log(`   Success: ${!result.error}`);
-          if (result.error) {
-            console.log(`   Error: ${result.error}`);
-          } else {
-            console.log(`   Result: ${JSON.stringify(result.result, null, 2)}`);
-          }
-          console.log(`   Time: ${result.timestamp.toISOString()}`);
-        });
-      }
-        */
-
-      if (traceData.conversation.length > 0) {
-        console.log("\n--- Conversation History ---");
-        traceData.conversation.forEach((msg, index) => {
-          console.log(
-            `${index + 1}. [${msg.role}] ${msg.timestamp.toISOString()}`,
-          );
-          console.log(`   Content: ${msg.content}`);
-          if (msg.toolCalls && msg.toolCalls.length > 0) {
-            console.log(
-              `   Tool Calls: ${msg.toolCalls.map((tc) => tc.name).join(", ")}`,
-            );
-          }
-        });
-      }
-
-      console.log("=== End Trace Store Debug Information ===");
-    }
 
     // Clean up trace store
     this.traceStore.destroy();

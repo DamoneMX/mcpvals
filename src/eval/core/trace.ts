@@ -99,8 +99,12 @@ export class TraceStore {
   /**
    * Add a conversation message
    */
-  addMessage(message: ConversationMessage): void {
-    this.conversation.push(message);
+  addMessage(message: ConversationMessage, toolCalls?: ToolCall[]): void {
+    const messageWithToolCalls: ConversationMessage = toolCalls
+      ? { ...message, toolCalls }
+      : message;
+
+    this.conversation.push(messageWithToolCalls);
 
     // Immediate cleanup if we exceed limits
     if (this.conversation.length > this.options.maxConversationMessages * 1.2) {
